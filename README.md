@@ -1,0 +1,171 @@
+# weekly-report-bot
+
+Telegram-бот, который:
+
+1. слушает канал-источник и на каждый выложенный `monthly_report.xlsx` парсит его и складывает
+   данные в PostgreSQL (идемпотентно, с аудитом обработанных файлов);
+2. каждый понедельник в 9:00 по Алматы собирает из БД отчёт за прошлую неделю (маркетплейсы,
+   программа лояльности, сводка) и отправляет готовый `.xlsx` в чат с отчётами;
+3. следит, что новые файлы из канала-источника вообще приходят - если файла нет дольше
+   `ingestion-watchdog.max-silence` (по умолчанию 26 часов), шлёт алерт в чат с отчётами.
+
+Файл каждый раз содержит всю накопленную историю (не дельту), поэтому даже если бот пропустил
+несколько дней (был выключен, канал молчал), следующий же успешно обработанный файл сам
+"довозит" все пропущенные даты - специально ничего пересылать не нужно. Единственный случай,
+когда данные реально теряются - если бот не работал дольше, чем Telegram хранит неподтверждённые
+апдейты (порядка суток): у Bot API нет способа запросить историю канала задним числом, поможет
+только повторная отправка файла в канал вручную.
+
+## Стек
+
+- Java 21, Spring Boot 4.1.0, Gradle (Kotlin DSL), Gradle Wrapper 9.6.1
+- PostgreSQL 16 + Flyway
+- Apache POI (парсинг и генерация `.xlsx`)
+- [TelegramBots](https://github.com/rubenlagus/TelegramBots) (`telegrambots-springboot-longpolling-starter`)
+- Testcontainers (интеграционные тесты с реальным PostgreSQL)
+
+Выбор конкретных версий и источники, откуда они взяты, - в разделе
+["Версии зависимостей"](#версии-зависимостей) ниже.
+
+## Структура проекта
+
+```
+src/main/java/ai/lab/weeklyreport/
+├── config/      - @ConfigurationProperties, бины TelegramClient/Clock
+├── metric/      - справочник метрик (id 1-18) и доменные DTO
+├── excel/       - парсинг monthly_report.xlsx и генерация недельного отчёта
+├── repository/  - JdbcTemplate: batch upsert daily_metrics, аудит ingested_files
+├── service/     - оркестрация приёма файла и сборки/отправки отчёта
+├── telegram/    - бот (приём файлов) и отправка сообщений/документов
+└── scheduler/   - еженедельный запуск по cron
+
+src/main/resources/db/migration/  - Flyway-миграции
+```
+
+## Быстрый старт (Docker)
+
+1. Скопируйте `.env.example` в `.env` и заполните значения (см. ниже, как получить
+   `TELEGRAM_BOT_TOKEN` и id чатов).
+2. Запустите:
+
+   ```bash
+   docker compose up --build
+   ```
+
+   Postgres поднимется первым (есть healthcheck), приложение стартует после него и само
+   применит Flyway-миграции при старте.
+
+## Как получить токен бота и chat_id канала
+
+1. Создайте бота через [@BotFather](https://t.me/BotFather) командой `/newbot`, получите
+   `TELEGRAM_BOT_TOKEN`.
+2. Добавьте бота **администратором** в канал-источник (тот, куда публикуется
+   `monthly_report.xlsx`) и в чат/канал, куда должен уходить готовый недельный отчёт.
+   Боту нужны права на чтение сообщений канала и на отправку сообщений/файлов в чат отчётов.
+3. Чтобы узнать числовой `chat_id` канала:
+   - перешлите (forward) любое сообщение из канала боту
+     [@userinfobot](https://t.me/userinfobot) или [@RawDataBot](https://t.me/RawDataBot) -
+     в пересланном сообщении будет поле `forward_from_chat.id` (обычно отрицательное число
+     вида `-100xxxxxxxxxx` для каналов);
+   - либо временно сделайте у бота вызов `getUpdates` (например, через
+     `https://api.telegram.org/bot<TOKEN>/getUpdates`) после того, как в канале появится
+     новый пост при добавленном боте, и посмотрите `channel_post.chat.id` в ответе.
+   - Для публичного канала с `@username` можно вместо числового id указать
+     `TELEGRAM_SOURCE_CHANNEL_ID=@username_канала` - бот поддерживает оба варианта.
+4. Заполните `TELEGRAM_SOURCE_CHANNEL_ID` и `TELEGRAM_REPORT_CHAT_ID` в `.env`.
+
+## Конфигурация (переменные окружения)
+
+| Переменная                    | Назначение                                             | По умолчанию              |
+|--------------------------------|--------------------------------------------------------|----------------------------|
+| `TELEGRAM_BOT_TOKEN`           | Токен бота от BotFather                                | -                          |
+| `TELEGRAM_SOURCE_CHANNEL_ID`   | Канал-источник `monthly_report.xlsx`                   | -                          |
+| `TELEGRAM_REPORT_CHAT_ID`      | Куда слать готовый недельный отчёт                     | -                          |
+| `SPRING_DATASOURCE_URL`        | JDBC URL PostgreSQL                                    | `jdbc:postgresql://localhost:6868/weeklyreport` |
+| `SPRING_DATASOURCE_USERNAME`   | Пользователь БД                                        | `weeklyreport`             |
+| `SPRING_DATASOURCE_PASSWORD`   | Пароль БД                                              | `weeklyreport`             |
+| `POSTGRES_PORT`                | Порт на хосте для Postgres из docker-compose (только для docker-compose, см. ниже) | `6868` |
+| `WEEKLY_REPORT_CRON`           | Cron-расписание генерации отчёта                       | `0 0 9 * * MON`            |
+| `WEEKLY_REPORT_TIMEZONE`       | Таймзона для cron                                      | `Asia/Almaty`              |
+| `INGESTION_WATCHDOG_MAX_SILENCE`    | Через сколько молчания канала-источника слать алерт    | `26h`                      |
+| `INGESTION_WATCHDOG_CHECK_INTERVAL` | Как часто проверять, не молчит ли канал                | `1h`                       |
+
+## Локальный запуск: БД в Docker, backend локально (например, из IDE)
+
+`.env` автоматически читает только `docker-compose` - IDE/`java -jar`/`./gradlew bootRun` его
+не подхватывают. Порядок действий:
+
+1. Поднимите только Postgres: `docker compose up -d postgres` (порт публикуется на хост как
+   `POSTGRES_PORT`, по умолчанию `6868` - см. `docker-compose.yml`).
+2. Задайте `TELEGRAM_BOT_TOKEN`, `TELEGRAM_SOURCE_CHANNEL_ID`, `TELEGRAM_REPORT_CHAT_ID` как
+   переменные окружения в конфигурации запуска IDE (или через плагин "EnvFile", указав на
+   `.env`) - без них бот не зарегистрируется в Telegram.
+   `SPRING_DATASOURCE_*` задавать не обязательно - дефолты в `application.yml` уже рассчитаны
+   на локальный Postgres из docker-compose (`localhost:6868`/`weeklyreport`/`weeklyreport`).
+3. Запускайте приложение как обычно (из IDE или `./gradlew bootRun`).
+
+## Как поменять расписание
+
+Расписание не зашито в код: измените `WEEKLY_REPORT_CRON` и/или `WEEKLY_REPORT_TIMEZONE`
+в `.env` (или в окружении контейнера) и перезапустите сервис - пересборка не нужна:
+
+```bash
+docker compose up -d --no-build
+```
+
+Формат cron - как в Spring (`@Scheduled`, 6 полей: секунды минуты часы день-месяца месяц день-недели).
+
+## Как добавить лист "Дивизионы" (в будущем)
+
+Сейчас лист сознательно не реализован - нет источника данных для маппинга
+"аптека → дивизион → директор". Задел под это уже есть:
+
+- миграция `V2__pharmacy_divisions_stub.sql` создаёт таблицу `pharmacy_divisions
+  (pharmacy_code, division_name, director_name)`, но не заполняет её данными;
+- когда появится источник маппинга (файл/справочник/ручной ввод), нужно будет:
+  1. загрузить данные в `pharmacy_divisions` (разовым скриптом или отдельным Flyway/repeatable-миграцией,
+     либо через отдельный админ-эндпоинт/импорт - в скоуп сейчас не входит);
+  2. добавить репозиторий чтения этой таблицы;
+  3. добавить метод `buildDivisionsSheet(...)` в `WeeklyReportGenerator`, агрегирующий
+     `daily_metrics` по дивизиону (через join с `pharmacy_divisions.pharmacy_code`) вместо
+     общей суммы по сети;
+  4. вызвать его из `WeeklyReportService` наравне с остальными листами.
+
+## Сборка и тесты
+
+```bash
+./gradlew clean build
+```
+
+Запускает юнит-тесты (парсинг xlsx, генерация отчёта) и интеграционный тест на реальном
+PostgreSQL через Testcontainers (нужен запущенный Docker).
+
+Фикстура `src/test/resources/fixtures/monthly_report_test.xlsx` - бинарный файл, сгенерированный
+утилитой `TestFixtureGenerator`. Если нужно поменять её структуру - отредактируйте генератор и
+перезапустите:
+
+```bash
+./gradlew generateTestFixtures
+```
+
+## Версии зависимостей
+
+Версии проверены по Maven Central / Central Portal (central.sonatype.com) и официальным
+release-страницам на момент сборки, а не взяты по памяти:
+
+| Зависимость                                             | Версия   | Источник |
+|----------------------------------------------------------|----------|----------|
+| Spring Boot (плагин + BOM)                                | 4.1.0    | spring.io/blog, plugins.gradle.org - последний стабильный релиз |
+| Gradle Wrapper                                            | 9.6.1    | services.gradle.org/versions/current |
+| io.spring.dependency-management                           | 1.1.7    | plugins.gradle.org |
+| org.gradle.toolchains.foojay-resolver-convention           | 1.0.0    | plugins.gradle.org (автозагрузка JDK 21 для toolchain) |
+| com.github.ben-manes.versions (`./gradlew dependencyUpdates`) | 0.54.0 | plugins.gradle.org |
+| Apache POI (`poi-ooxml`)                                   | 5.5.1    | poi.apache.org - не управляется Spring Boot BOM, версия зафиксирована явно |
+| TelegramBots (`telegrambots-springboot-longpolling-starter`, `telegrambots-client`) | 10.0.0 | central.sonatype.com - не управляется Spring Boot BOM |
+| PostgreSQL JDBC driver                                     | 42.7.11  | управляется Spring Boot 4.1.0 BOM |
+| Flyway (`flyway-core`, через `spring-boot-starter-flyway`)  | 12.4.0   | управляется Spring Boot 4.1.0 BOM. В Spring Boot 4.x автоконфигурация Flyway требует именно `spring-boot-starter-flyway`, одного `flyway-core` недостаточно |
+| Testcontainers (`testcontainers-junit-jupiter`, `testcontainers-postgresql`) | 2.2.4 | управляется Spring Boot 4.1.0 BOM. В Testcontainers 2.x артефакты переименованы с префиксом `testcontainers-`, а `PostgreSQLContainer` перестал быть generic-классом и переехал в пакет `org.testcontainers.postgresql` |
+
+Версии PostgreSQL driver, Flyway и Testcontainers сознательно не зафиксированы явно в
+`build.gradle.kts` - они наследуются из BOM `spring-boot-dependencies:4.1.0`, что гарантирует
+совместимость между собой и с самим Spring Boot.

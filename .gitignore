@@ -35,3 +35,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Claude ###
+.claude
+
+### Environment ###
+.env
+.env.local

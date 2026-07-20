@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: weeklyreport
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:6868/weeklyreport}
+    username: ${SPRING_DATASOURCE_USERNAME:weeklyreport}
+    password: ${SPRING_DATASOURCE_PASSWORD:weeklyreport}
+  flyway:
+    locations: classpath:db/migration
+
+telegram:
+  bot:
+    token: ${TELEGRAM_BOT_TOKEN}
+    source-channel-id: ${TELEGRAM_SOURCE_CHANNEL_ID}
+    report-chat-id: ${TELEGRAM_REPORT_CHAT_ID}
+
+weekly-report:
+  cron: ${WEEKLY_REPORT_CRON:0 0 9 * * MON}
+  timezone: ${WEEKLY_REPORT_TIMEZONE:Asia/Almaty}
+
+ingestion-watchdog:
+  max-silence: ${INGESTION_WATCHDOG_MAX_SILENCE:26h}
+  check-interval: ${INGESTION_WATCHDOG_CHECK_INTERVAL:1h}
+
+logging:
+  level:
+    ai.lab.weeklyreport: INFO

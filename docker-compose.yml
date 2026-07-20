@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-weeklyreport}
+      POSTGRES_USER: ${POSTGRES_USER:-weeklyreport}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-weeklyreport}
+    ports:
+      # Публикуем на хост, чтобы backend можно было запускать локально (не в Docker) и
+      # подключаться на localhost:${POSTGRES_PORT}. Порт хоста не 5432 по умолчанию,
+      # чтобы не конфликтовать с локально установленным PostgreSQL, если он уже занимает 5432.
+      - "${POSTGRES_PORT:-6868}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-weeklyreport} -d ${POSTGRES_DB:-weeklyreport}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_SOURCE_CHANNEL_ID: ${TELEGRAM_SOURCE_CHANNEL_ID}
+      TELEGRAM_REPORT_CHAT_ID: ${TELEGRAM_REPORT_CHAT_ID}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-weeklyreport}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-weeklyreport}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-weeklyreport}
+      WEEKLY_REPORT_CRON: ${WEEKLY_REPORT_CRON:-0 0 9 * * MON}
+      WEEKLY_REPORT_TIMEZONE: ${WEEKLY_REPORT_TIMEZONE:-Asia/Almaty}
+
+volumes:
+  postgres_data:
