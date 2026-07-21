@@ -7,9 +7,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-weeklyreport}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-weeklyreport}
     ports:
-      # Публикуем на хост, чтобы backend можно было запускать локально (не в Docker) и
-      # подключаться на localhost:${POSTGRES_PORT}. Порт хоста не 5432 по умолчанию,
-      # чтобы не конфликтовать с локально установленным PostgreSQL, если он уже занимает 5432.
       - "${POSTGRES_PORT:-6868}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -34,6 +31,10 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-weeklyreport}
       WEEKLY_REPORT_CRON: ${WEEKLY_REPORT_CRON:-0 0 9 * * MON}
       WEEKLY_REPORT_TIMEZONE: ${WEEKLY_REPORT_TIMEZONE:-Asia/Almaty}
+      DIVISIONS_FILE_PATH: /data/divisions.xlsx
+      DARIBAR_CROSSWALK_PATH: /data/daribar_crosswalk.xlsx
+    volumes:
+      - ./data:/data:ro
 
 volumes:
   postgres_data:

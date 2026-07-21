@@ -29,9 +29,11 @@ final class ReportStyles {
 
     private static final String FORMAT_COUNT = "#,##0";
     private static final String FORMAT_MONEY = "#,##0.00";
+    private static final String FORMAT_MONEY_WHOLE = "#,##0";
     private static final String FORMAT_DYNAMIC_COUNT = "+#,##0;-#,##0;0";
     private static final String FORMAT_DYNAMIC_MONEY = "+#,##0.00;-#,##0.00;0.00";
     private static final String FORMAT_PERCENT = "+0.0%;-0.0%;0.0%";
+    private static final String FORMAT_PERCENT_PLAIN = "0.0%";
 
     private final XSSFWorkbook workbook;
     private final Map<String, XSSFCellStyle> cache = new HashMap<>();
@@ -100,6 +102,48 @@ final class ReportStyles {
             style.setFillForegroundColor(TOTAL_BG);
             style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
             style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(money ? FORMAT_MONEY : FORMAT_COUNT));
+            style.setFont(font(BLACK, true));
+            return style;
+        });
+    }
+
+    XSSFCellStyle wholeMoneyStyle(boolean stripe) {
+        return cache.computeIfAbsent("whole-money-" + stripe, k -> {
+            XSSFCellStyle style = base();
+            applyStripe(style, stripe);
+            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(FORMAT_MONEY_WHOLE));
+            style.setFont(font(BLACK, false));
+            return style;
+        });
+    }
+
+    XSSFCellStyle totalWholeMoneyStyle() {
+        return cache.computeIfAbsent("total-whole-money", k -> {
+            XSSFCellStyle style = base();
+            style.setFillForegroundColor(TOTAL_BG);
+            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(FORMAT_MONEY_WHOLE));
+            style.setFont(font(BLACK, true));
+            return style;
+        });
+    }
+
+    XSSFCellStyle percentStyle(boolean stripe) {
+        return cache.computeIfAbsent("percent-" + stripe, k -> {
+            XSSFCellStyle style = base();
+            applyStripe(style, stripe);
+            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(FORMAT_PERCENT_PLAIN));
+            style.setFont(font(BLACK, false));
+            return style;
+        });
+    }
+
+    XSSFCellStyle totalPercentStyle() {
+        return cache.computeIfAbsent("total-percent", k -> {
+            XSSFCellStyle style = base();
+            style.setFillForegroundColor(TOTAL_BG);
+            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(FORMAT_PERCENT_PLAIN));
             style.setFont(font(BLACK, true));
             return style;
         });

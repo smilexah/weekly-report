@@ -56,11 +56,11 @@ migrations on startup).
 ## Architecture
 
 ```
-config/     @ConfigurationProperties records (telegram.bot, weekly-report, ingestion-watchdog) + Clock/TelegramClient beans
-metric/     metric catalog (numeric ids 1-18) and domain DTOs
-excel/      monthly_report.xlsx parsing + weekly report .xlsx generation
-repository/ JdbcTemplate: batch upsert daily_metrics, ingested_files audit
-service/    orchestration: file ingestion, weekly report assembly/send
+config/     @ConfigurationProperties records (telegram.bot, weekly-report incl. divisions/daribar-crosswalk paths, ingestion-watchdog) + Clock/TelegramClient beans
+metric/     metric catalog (numeric ids 1-18) and domain DTOs, incl. division/pharmacy-directory DTOs
+excel/      monthly_report.xlsx / divisions.xlsx / daribar_crosswalk.xlsx parsing + weekly report .xlsx generation
+repository/ JdbcTemplate: batch upsert daily_metrics, pharmacy_directory/daribar_crosswalk reference data, division report aggregates, ingested_files audit
+service/    orchestration: file ingestion, startup reference-data loading, weekly report assembly/send
 telegram/   bot (receives files) + sender (messages/documents)
 scheduler/  weekly cron trigger + silent-channel watchdog
 ```
@@ -74,9 +74,11 @@ on `(pharmacy_code, metric_num, metric_date)`) → records an `ingested_files` a
 **Data flow — reporting**: `WeeklyReportScheduler` (`@Scheduled` cron from `weekly-report.cron`/
 `.timezone`) → `WeeklyReportService.generateAndSendWeeklyReport()`: computes current/previous
 `WeekRange` (Mon-Sun) via `WeekRange.containingWeekBefore(today)`, pulls aggregated
-`MetricDailyTotal`s from `DailyMetricRepository.findDailyTotals()`, builds the workbook via
-`WeeklyReportGenerator.generate()` (sheets: "Маркетплейсы", "Программа лояльности", "Сводный", built
-on top of `MetricPivot` for day/metric lookups and `ReportStyles` for POI cell styles), sends via
+`MetricDailyTotal`s from `DailyMetricRepository.findDailyTotals()` plus division-level aggregates
+from `DivisionReportRepository`/`PharmacyDirectoryRepository`, builds the workbook via
+`WeeklyReportGenerator.generate()` (sheets: "Маркетплейсы", "Программа лояльности", "Сводный",
+"Дивизионы" - the last built on top of `DivisionMetricPivot` instead of the day-keyed `MetricPivot`,
+current week only, no prior-week comparison - and `ReportStyles` for POI cell styles), sends via
 `TelegramSender.sendDocument()`. Failures are logged with full stacktrace and a short error message
 is also sent to the reports chat (`WeeklyReportScheduler.notifyFailure`), so failures are visible
 without digging through logs.
@@ -103,11 +105,36 @@ in January). Header row is located dynamically by scanning for a "Код апт�
 columns are recognized and skipped. Row processing stops at the first row with an empty pharmacy
 code.
 
-**Divisions sheet (not implemented)**: `V2__pharmacy_divisions_stub.sql` creates an empty
-`pharmacy_divisions (pharmacy_code, division_name, director_name)` table as groundwork, but there's
-no current data source for the pharmacy→division→director mapping. To implement later: load data into
-that table, add a read repository, add `WeeklyReportGenerator.buildDivisionsSheet(...)` aggregating
-`daily_metrics` by division (joined on `pharmacy_code`), and call it from `WeeklyReportService`.
+**Divisions sheet and branch_code resolution**: two reference spreadsheets, loaded once at
+application startup (not on the weekly schedule) by `ReferenceDataLoader` (`ApplicationRunner`),
+each independently: a missing/unset path or missing file just logs a WARN, the app still starts and
+that reference data stays empty. Paths come from `weekly-report.divisions-path`/
+`.daribar-crosswalk-path` (env `DIVISIONS_FILE_PATH`/`DARIBAR_CROSSWALK_PATH`). Every load is a full
+replace (`TRUNCATE` + batch insert in one transaction), not an incremental merge.
+
+- `divisions.xlsx` → `DivisionsFileParser` → `pharmacy_directory` table (`branch_code` PK, address,
+  city, division_num, director_name) via `PharmacyDirectoryRepository.reloadAll()`. This is the
+  aptека→division→director mapping (`V2__pharmacy_divisions_stub.sql`'s stub table is superseded and
+  dropped by `V3__division_reference_data.sql`).
+- `daribar_crosswalk.xlsx` → `DaribarCrosswalkParser` → `daribar_crosswalk` table (`daribar_code` PK,
+  branch_code, pharmacy_name, comment) via `DaribarCrosswalkRepository.reloadAll()`. Known source
+  data quirk: duplicate `daribar_code` rows can occur - tolerated, last row in the file wins (JDBC
+  batch executes one upsert statement per row in file order).
+- **branch_code resolution** (`DailyMetricRepository.UPSERT_SQL`): for each ingested row, priority is
+  1) the row's own `Код филиала` if non-blank, 2) else a live subquery against `daribar_crosswalk`
+  matching `pharmacy_code` = `daribar_code`, 3) else `NULL`. This happens directly in the upsert SQL
+  (`COALESCE(NULLIF(:branchCode, ''), (SELECT branch_code FROM daribar_crosswalk WHERE daribar_code = :pharmacyCode))`),
+  re-evaluated via `EXCLUDED.branch_code` on every conflict - so existing rows self-heal as
+  `daribar_crosswalk` changes, on the next re-ingest of the same (always-full-history)
+  `monthly_report.xlsx`. `daily_metrics.branch_code` is nullable as of `V3`.
+- **"Дивизионы" sheet** (`WeeklyReportGenerator.buildDivisionsSheet`): one row per division from
+  `PharmacyDirectoryRepository.findDivisionRegistry()` (static registry counts/coverage), joined
+  against current-week aggregates from `DivisionReportRepository` (`LEFT JOIN daily_metrics ...
+  pharmacy_directory` - a `NULL` division bucket naturally captures both unresolved and
+  no-directory-match branch_codes). Below the division rows: "Без дивизиона / склад" (that `NULL`
+  bucket, self-referential activity denominator since there's no registry count for it), then
+  "ИТОГО ПО СЕТИ" - includes the "Без дивизиона" bucket, and its activity % is a ratio of summed
+  counts, not an average of per-division percentages.
 
 ## Stack notes
 

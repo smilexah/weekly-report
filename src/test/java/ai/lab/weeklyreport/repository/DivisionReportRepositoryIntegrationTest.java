@@ -1,0 +1,87 @@
+package ai.lab.weeklyreport.repository;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.postgresql.ds.PGSimpleDataSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import ai.lab.weeklyreport.metric.DivisionActivityTotal;
+import ai.lab.weeklyreport.metric.DivisionMetricTotal;
+import ai.lab.weeklyreport.metric.MetricRow;
+import ai.lab.weeklyreport.metric.PharmacyDirectoryEntry;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Проверяет LEFT JOIN daily_metrics/pharmacy_directory с группировкой по division_num (включая
+ * "без дивизиона" как NULL-корзину) и FILTER для активных аптек - на реальном PostgreSQL.
+ */
+@Testcontainers
+class DivisionReportRepositoryIntegrationTest {
+
+    @Container
+    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
+
+    private DivisionReportRepository repository;
+    private DailyMetricRepository dailyMetricRepository;
+    private PharmacyDirectoryRepository pharmacyDirectoryRepository;
+
+    @BeforeEach
+    void setUp() {
+        PGSimpleDataSource dataSource = new PGSimpleDataSource();
+        dataSource.setUrl(postgres.getJdbcUrl());
+        dataSource.setUser(postgres.getUsername());
+        dataSource.setPassword(postgres.getPassword());
+
+        Flyway.configure()
+                .dataSource(dataSource)
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        NamedParameterJdbcTemplate jdbcTemplate = new NamedParameterJdbcTemplate(dataSource);
+        repository = new DivisionReportRepository(jdbcTemplate);
+        dailyMetricRepository = new DailyMetricRepository(jdbcTemplate);
+        pharmacyDirectoryRepository = new PharmacyDirectoryRepository(jdbcTemplate);
+    }
+
+    @Test
+    void groupsMetricTotalsByDivisionAndBucketsUnresolvedUnderNull() {
+        pharmacyDirectoryRepository.reloadAll(List.of(new PharmacyDirectoryEntry("F1", "адрес", "Алматы", "1", "Иванов")));
+        LocalDate day = LocalDate.of(2026, 7, 20);
+        dailyMetricRepository.upsertAll(List.of(
+                new MetricRow("3001", "F1", 11, day, BigDecimal.valueOf(10)),
+                new MetricRow("3002", "NOPE", 11, day, BigDecimal.valueOf(20))));
+
+        List<DivisionMetricTotal> totals = repository.findMetricTotalsByDivision(day, day);
+
+        DivisionMetricTotal division1 = totals.stream().filter(t -> "1".equals(t.divisionNum())).findFirst().orElseThrow();
+        assertThat(division1.total()).isEqualByComparingTo("10");
+
+        DivisionMetricTotal unresolved = totals.stream().filter(t -> t.divisionNum() == null).findFirst().orElseThrow();
+        assertThat(unresolved.total()).isEqualByComparingTo("20");
+    }
+
+    @Test
+    void activityTotalsCountDistinctPharmaciesAndFilterZeroValues() {
+        pharmacyDirectoryRepository.reloadAll(List.of(new PharmacyDirectoryEntry("F1", "адрес", "Алматы", "1", "Иванов")));
+        LocalDate day = LocalDate.of(2026, 7, 21);
+        dailyMetricRepository.upsertAll(List.of(
+                new MetricRow("3003", "F1", 11, day, BigDecimal.valueOf(5)),
+                new MetricRow("3004", "F1", 11, day, BigDecimal.ZERO)));
+
+        List<DivisionActivityTotal> totals = repository.findActivityTotalsByDivision(day, day);
+
+        DivisionActivityTotal division1 = totals.stream().filter(t -> "1".equals(t.divisionNum())).findFirst().orElseThrow();
+        assertThat(division1.pharmacyCount()).isEqualTo(2);
+        assertThat(division1.activePharmacyCount()).isEqualTo(1);
+    }
+}

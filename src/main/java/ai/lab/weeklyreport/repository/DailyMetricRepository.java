@@ -21,9 +21,17 @@ public class DailyMetricRepository {
 
     private static final int BATCH_SIZE = 1000;
 
+    // branch_code резолвится в порядке приоритета: 1) значение из строки monthly_report, если не
+    // пусто; 2) иначе - поиск по daribar_crosswalk (branch_code, сопоставленный с pharmacy_code
+    // как с кодом аптеки в Daribar); 3) иначе - NULL. EXCLUDED.branch_code при конфликте берёт уже
+    // пересчитанное по этой же логике значение, поэтому существующие строки самовосстанавливаются
+    // при изменении daribar_crosswalk на следующей загрузке того же файла.
     private static final String UPSERT_SQL = """
             INSERT INTO daily_metrics (pharmacy_code, branch_code, metric_num, metric_date, value, updated_at)
-            VALUES (:pharmacyCode, :branchCode, :metricNum, :metricDate, :value, now())
+            VALUES (
+                :pharmacyCode,
+                COALESCE(NULLIF(:branchCode, ''), (SELECT branch_code FROM daribar_crosswalk WHERE daribar_code = :pharmacyCode)),
+                :metricNum, :metricDate, :value, now())
             ON CONFLICT (pharmacy_code, metric_num, metric_date)
             DO UPDATE SET branch_code = EXCLUDED.branch_code, value = EXCLUDED.value, updated_at = now()
             """;

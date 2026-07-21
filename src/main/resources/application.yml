@@ -20,6 +20,8 @@ telegram:
 weekly-report:
   cron: ${WEEKLY_REPORT_CRON:0 0 9 * * MON}
   timezone: ${WEEKLY_REPORT_TIMEZONE:Asia/Almaty}
+  divisions-path: ${DIVISIONS_FILE_PATH}
+  daribar-crosswalk-path: ${DARIBAR_CROSSWALK_PATH}
 
 ingestion-watchdog:
   max-silence: ${INGESTION_WATCHDOG_MAX_SILENCE:26h}
