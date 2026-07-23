@@ -144,7 +144,7 @@ public class WeeklyReportGenerator {
         writeCell(totalRow, c, grandCount, styles.totalRowValueStyle(ReportStyles.FORMAT_NUMBER));
         writeCell(totalRow, c + 1, grandSum, styles.totalRowValueStyle(ReportStyles.FORMAT_NUMBER));
 
-        sheet.createFreezePane(1, subHeaderRowIdx + 1);
+        sheet.createFreezePane(0, subHeaderRowIdx + 1);
 
         int[] widths = new int[lastColIndex + 1];
         widths[0] = 14;
@@ -193,7 +193,7 @@ public class WeeklyReportGenerator {
             writeCell(row, days.size() + 1, weekTotal, styles.accentStyle(ReportStyles.FORMAT_NUMBER));
         }
 
-        sheet.createFreezePane(1, headerRowIdx + 1);
+        sheet.createFreezePane(0, headerRowIdx + 1);
 
         int[] widths = new int[lastColIndex + 1];
         widths[0] = 22;
@@ -303,7 +303,7 @@ public class WeeklyReportGenerator {
         writeCell(totalRow, col++, networkMpCount, styles.totalRowValueStyle(ReportStyles.FORMAT_NUMBER));
         writeCell(totalRow, col, networkMpSum, styles.totalRowValueStyle(ReportStyles.FORMAT_NUMBER));
 
-        sheet.createFreezePane(4, subHeaderRowIdx + 1);
+        sheet.createFreezePane(0, subHeaderRowIdx + 1);
 
         int[] widths = new int[lastColIndex + 1];
         widths[0] = 10;
@@ -455,9 +455,9 @@ public class WeeklyReportGenerator {
         stripeCounter[0]++;
         XSSFRow row = sheet.createRow(rowIdx);
         writeCell(row, 0, label, styles.summaryLabelStyle(stripe));
-        writeCell(row, 1, "н/д", styles.summaryLabelStyle(stripe));
-        writeCell(row, 2, "н/д", styles.summaryLabelStyle(stripe));
-        writeCell(row, 3, "н/д", styles.summaryLabelStyle(stripe));
+        writeCell(row, 1, "", styles.summaryLabelStyle(stripe));
+        writeCell(row, 2, "", styles.summaryLabelStyle(stripe));
+        writeCell(row, 3, "", styles.summaryLabelStyle(stripe));
         setRowHeight(sheet, rowIdx, 20f);
         return rowIdx + 1;
     }
