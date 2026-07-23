@@ -25,42 +25,105 @@ class WeeklyReportGeneratorTest {
 
     private static final DivisionsReportData EMPTY_DIVISIONS_DATA = new DivisionsReportData(List.of(), List.of(), List.of());
 
+    // Sheet "1. Маркетплейсы": колонка 0 - канал, затем пары (Заказов,Сумма) на каждый день недели
+    // (пн=1..вс=7), последняя пара (15,16) - "ИТОГО" за неделю по каналу.
+    private static final int MP_COL_MON_COUNT = 1;
+    private static final int MP_COL_MON_SUM = 2;
+    private static final int MP_COL_TOTAL_COUNT = 15;
+    private static final int MP_COL_TOTAL_SUM = 16;
+
+    // Sheet "2. Программа лояльности": колонка 0 - показатель, 1..7 - дни недели, 8 - "ИТОГО".
+    private static final int PL_COL_MON = 1;
+    private static final int PL_COL_TOTAL = 8;
+
     @Test
-    void generatesFourSheetsWithCorrectTotalsAndDynamics() throws IOException {
+    void generatesFourSheetsInDesignOrder() throws IOException {
+        WeekRange currentWeek = new WeekRange(LocalDate.of(2026, 7, 13), LocalDate.of(2026, 7, 19));
+        WeekRange previousWeek = currentWeek.previousWeek();
+
+        byte[] workbookBytes = generator.generate(currentWeek, List.of(), previousWeek, List.of(), EMPTY_DIVISIONS_DATA);
+
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(workbookBytes))) {
+            assertThat(workbook.getNumberOfSheets()).isEqualTo(4);
+            assertThat(sheetNames(workbook)).containsExactly(
+                    "1. Маркетплейсы", "2. Программа лояльности", "3. Дивизионы", "4. Сводный");
+        }
+    }
+
+    @Test
+    void marketplaceSheetPivotsChannelsAsRowsAndDaysAsColumnsWithWeeklyTotal() throws IOException {
         WeekRange currentWeek = new WeekRange(LocalDate.of(2026, 7, 13), LocalDate.of(2026, 7, 19));
         WeekRange previousWeek = currentWeek.previousWeek();
 
         List<MetricDailyTotal> currentTotals = List.of(
-                new MetricDailyTotal(LocalDate.of(2026, 7, 13), 11, BigDecimal.valueOf(100)), // Daribar, кол-во
-                new MetricDailyTotal(LocalDate.of(2026, 7, 13), 12, BigDecimal.valueOf(5000)), // Daribar, сумма
-                new MetricDailyTotal(LocalDate.of(2026, 7, 14), 11, BigDecimal.valueOf(50)),
-                new MetricDailyTotal(LocalDate.of(2026, 7, 13), 1, BigDecimal.valueOf(20)), // ПЛ core, новых клиентов
-                new MetricDailyTotal(LocalDate.of(2026, 7, 13), 6, BigDecimal.valueOf(5))   // ПЛ Janymda, новых клиентов
+                new MetricDailyTotal(LocalDate.of(2026, 7, 13), 11, BigDecimal.valueOf(100)), // Daribar, кол-во, пн
+                new MetricDailyTotal(LocalDate.of(2026, 7, 13), 12, BigDecimal.valueOf(5000)), // Daribar, сумма, пн
+                new MetricDailyTotal(LocalDate.of(2026, 7, 14), 11, BigDecimal.valueOf(50))     // Daribar, кол-во, вт
         );
+
+        byte[] workbookBytes = generator.generate(currentWeek, currentTotals, previousWeek, List.of(), EMPTY_DIVISIONS_DATA);
+
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(workbookBytes))) {
+            Sheet marketplaces = workbook.getSheet("1. Маркетплейсы");
+
+            Row daribarRow = findRowByLabel(marketplaces, "Daribar");
+            assertThat(numeric(daribarRow, MP_COL_MON_COUNT)).isEqualTo(100.0);
+            assertThat(numeric(daribarRow, MP_COL_MON_SUM)).isEqualTo(5000.0);
+            assertThat(numeric(daribarRow, MP_COL_TOTAL_COUNT)).isEqualTo(150.0); // 100 (пн) + 50 (вт)
+            assertThat(numeric(daribarRow, MP_COL_TOTAL_SUM)).isEqualTo(5000.0);
+
+            Row totalRow = findRowByLabel(marketplaces, "ИТОГО МП");
+            assertThat(numeric(totalRow, MP_COL_MON_COUNT)).isEqualTo(100.0);
+            assertThat(numeric(totalRow, MP_COL_TOTAL_COUNT)).isEqualTo(150.0);
+            assertThat(numeric(totalRow, MP_COL_TOTAL_SUM)).isEqualTo(5000.0);
+        }
+    }
+
+    @Test
+    void loyaltySheetPivotsMeasuresAsRowsAndSumsCoreAndJanymdaPerDay() throws IOException {
+        WeekRange currentWeek = new WeekRange(LocalDate.of(2026, 7, 13), LocalDate.of(2026, 7, 19));
+        WeekRange previousWeek = currentWeek.previousWeek();
+
+        List<MetricDailyTotal> currentTotals = List.of(
+                new MetricDailyTotal(LocalDate.of(2026, 7, 13), 1, BigDecimal.valueOf(20)), // ПЛ core, новых клиентов, пн
+                new MetricDailyTotal(LocalDate.of(2026, 7, 13), 6, BigDecimal.valueOf(5)),  // ПЛ Janymda, новых клиентов, пн
+                new MetricDailyTotal(LocalDate.of(2026, 7, 14), 1, BigDecimal.valueOf(3))   // ПЛ core, новых клиентов, вт
+        );
+
+        byte[] workbookBytes = generator.generate(currentWeek, currentTotals, previousWeek, List.of(), EMPTY_DIVISIONS_DATA);
+
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(workbookBytes))) {
+            Sheet loyalty = workbook.getSheet("2. Программа лояльности");
+
+            Row newClientsRow = findRowByLabel(loyalty, "Новых клиентов, чел.");
+            assertThat(numeric(newClientsRow, PL_COL_MON)).isEqualTo(25.0); // core(20) + janymda(5)
+            assertThat(numeric(newClientsRow, PL_COL_TOTAL)).isEqualTo(28.0); // 25 (пн) + 3 (вт)
+        }
+    }
+
+    @Test
+    void summarySheetComparesCurrentAndPreviousWeekTotals() throws IOException {
+        WeekRange currentWeek = new WeekRange(LocalDate.of(2026, 7, 13), LocalDate.of(2026, 7, 19));
+        WeekRange previousWeek = currentWeek.previousWeek();
+
+        List<MetricDailyTotal> currentTotals = List.of(
+                new MetricDailyTotal(LocalDate.of(2026, 7, 13), 11, BigDecimal.valueOf(100)),
+                new MetricDailyTotal(LocalDate.of(2026, 7, 14), 11, BigDecimal.valueOf(50)));
         List<MetricDailyTotal> previousTotals = List.of(
-                new MetricDailyTotal(LocalDate.of(2026, 7, 6), 11, BigDecimal.valueOf(80))
-        );
+                new MetricDailyTotal(LocalDate.of(2026, 7, 6), 11, BigDecimal.valueOf(80)));
 
         byte[] workbookBytes = generator.generate(currentWeek, currentTotals, previousWeek, previousTotals, EMPTY_DIVISIONS_DATA);
 
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(workbookBytes))) {
-            assertThat(workbook.getNumberOfSheets()).isEqualTo(4);
-            assertThat(sheetNames(workbook)).containsExactly("Маркетплейсы", "Программа лояльности", "Сводный", "Дивизионы");
+            Sheet summary = workbook.getSheet("4. Сводный");
 
-            Sheet marketplaces = workbook.getSheet("Маркетплейсы");
-            Row marketplaceTotalRow = findRowByLabel(marketplaces, "ИТОГО за неделю");
-            assertThat(numeric(marketplaceTotalRow, 1)).isEqualTo(150.0); // Daribar, кол-во: 100 + 50
-            assertThat(numeric(marketplaceTotalRow, 2)).isEqualTo(5000.0); // Daribar, сумма
+            Row daribarCountRow = findRowByLabel(summary, "Daribar — кол-во заказов");
+            assertThat(numeric(daribarCountRow, 1)).isEqualTo(150.0); // текущая неделя
+            assertThat(numeric(daribarCountRow, 2)).isEqualTo(80.0);  // прошлая неделя
+            assertThat(numeric(daribarCountRow, 3)).isEqualTo(70.0);  // динамика
 
-            Sheet loyalty = workbook.getSheet("Программа лояльности");
-            Row loyaltyTotalRow = findRowByLabel(loyalty, "ИТОГО за неделю");
-            assertThat(numeric(loyaltyTotalRow, 1)).isEqualTo(25.0); // core(20) + janymda(5)
-
-            Sheet summary = workbook.getSheet("Сводный");
-            Row daribarSummaryRow = findRowByLabel(summary, "Daribar, кол-во");
-            assertThat(numeric(daribarSummaryRow, 1)).isEqualTo(150.0); // текущая неделя
-            assertThat(numeric(daribarSummaryRow, 2)).isEqualTo(80.0);  // прошлая неделя
-            assertThat(numeric(daribarSummaryRow, 3)).isEqualTo(70.0);  // динамика
+            Row ordersRow = findRowByLabel(summary, "Кол-во заказов МП — всего, шт");
+            assertThat(numeric(ordersRow, 1)).isEqualTo(150.0);
         }
     }
 
@@ -99,8 +162,10 @@ class WeeklyReportGeneratorTest {
         byte[] workbookBytes = generator.generate(currentWeek, List.of(), previousWeek, List.of(), divisionsData);
 
         try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(workbookBytes))) {
-            Sheet sheet = workbook.getSheet("Дивизионы");
+            Sheet sheet = workbook.getSheet("3. Дивизионы");
 
+            // Колонки: 0 номер, 1 директор, 2 кол-во аптек, 3 охват, 4 новых клиентов, 5 начислено,
+            // 6 актив.%, 7-14 по каналам (Daribar/Glovo/Emdel/Wolt), 15-16 МП ИТОГО.
             Row division1 = findRowByLabel(sheet, "1");
             assertThat(numeric(division1, 2)).isEqualTo(10.0); // Кол-во аптек - из справочника
             assertThat(numeric(division1, 4)).isEqualTo(20.0); // Новых клиентов
@@ -113,24 +178,25 @@ class WeeklyReportGeneratorTest {
 
             Row division2 = findRowByLabel(sheet, "2");
             assertThat(numeric(division2, 6)).isCloseTo(0.9, within(1e-9)); // 90 / 100 в справочнике, НЕ /95
+            assertThat(numeric(division2, 9)).isEqualTo(50.0); // Glovo, кол-во
+            assertThat(numeric(division2, 10)).isEqualTo(2500.0); // Glovo, сумма
 
-            Row withoutDivision = findRowByLabel(sheet, "Без дивизиона / склад");
-            assertThat(withoutDivision.getCell(1).getStringCellValue()).isEqualTo("-");
-            assertThat(numeric(withoutDivision, 2)).isEqualTo(5.0);
-            assertThat(numeric(withoutDivision, 6)).isCloseTo(1.0, within(1e-9)); // 5 / 5 (сам себе знаменатель)
+            // Аптеки без резолвленного дивизиона (divisionNum = null в тестовых данных) не должны
+            // попадать на этот лист ни отдельной строкой, ни в "ИТОГО ПО СЕТИ".
+            assertThat(findRowIndexByLabel(sheet, "Без дивизиона / склад")).isEmpty();
 
             Row total = findRowByLabel(sheet, "ИТОГО ПО СЕТИ");
-            assertThat(numeric(total, 2)).isEqualTo(115.0); // 10 + 100 + 5
-            assertThat(numeric(total, 4)).isEqualTo(31.0);  // 20 + 10 + 1
-            assertThat(numeric(total, 5)).isEqualTo(1550.0); // 1000 + 500 + 50
-            // Отношение сумм (5+90+5)/(10+100+5), НЕ среднее процентов (50%+90%)/2=70%.
-            assertThat(numeric(total, 6)).isCloseTo(100.0 / 115.0, within(1e-9));
-            assertThat(numeric(total, 7)).isEqualTo(101.0); // Daribar: 100 + 0 + 1
-            assertThat(numeric(total, 8)).isEqualTo(5100.0);
-            assertThat(numeric(total, 9)).isEqualTo(50.0);  // Glovo: 0 + 50 + 0
+            assertThat(numeric(total, 2)).isEqualTo(110.0); // 10 + 100, БЕЗ null-бакета
+            assertThat(numeric(total, 4)).isEqualTo(30.0);  // 20 + 10
+            assertThat(numeric(total, 5)).isEqualTo(1500.0); // 1000 + 500
+            // Отношение сумм (5+90)/(10+100), НЕ среднее процентов (50%+90%)/2=70%.
+            assertThat(numeric(total, 6)).isCloseTo(95.0 / 110.0, within(1e-9));
+            assertThat(numeric(total, 7)).isEqualTo(100.0); // Daribar: 100 + 0, БЕЗ null-бакета
+            assertThat(numeric(total, 8)).isEqualTo(5000.0);
+            assertThat(numeric(total, 9)).isEqualTo(50.0);  // Glovo: 0 + 50
             assertThat(numeric(total, 10)).isEqualTo(2500.0);
-            assertThat(numeric(total, 15)).isEqualTo(151.0); // МП ИТОГО, кол-во: 101 + 50
-            assertThat(numeric(total, 16)).isEqualTo(7600.0); // МП ИТОГО, сумма: 5100 + 2500
+            assertThat(numeric(total, 15)).isEqualTo(150.0); // МП ИТОГО, кол-во: 100 + 50
+            assertThat(numeric(total, 16)).isEqualTo(7500.0); // МП ИТОГО, сумма: 5000 + 2500
         }
     }
 
@@ -142,11 +208,22 @@ class WeeklyReportGeneratorTest {
 
     private static Row findRowByLabel(Sheet sheet, String label) {
         for (Row row : sheet) {
-            if (row.getCell(0) != null && label.equals(row.getCell(0).getStringCellValue())) {
+            if (row.getCell(0) != null && row.getCell(0).getCellType() == org.apache.poi.ss.usermodel.CellType.STRING
+                    && label.equals(row.getCell(0).getStringCellValue())) {
                 return row;
             }
         }
         throw new AssertionError("Строка с меткой '" + label + "' не найдена на листе " + sheet.getSheetName());
+    }
+
+    private static java.util.Optional<Row> findRowIndexByLabel(Sheet sheet, String label) {
+        for (Row row : sheet) {
+            if (row.getCell(0) != null && row.getCell(0).getCellType() == org.apache.poi.ss.usermodel.CellType.STRING
+                    && label.equals(row.getCell(0).getStringCellValue())) {
+                return java.util.Optional.of(row);
+            }
+        }
+        return java.util.Optional.empty();
     }
 
     private static double numeric(Row row, int col) {

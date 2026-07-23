@@ -84,4 +84,25 @@ class DivisionReportRepositoryIntegrationTest {
         assertThat(division1.pharmacyCount()).isEqualTo(2);
         assertThat(division1.activePharmacyCount()).isEqualTo(1);
     }
+
+    @Test
+    void closedStatusDivisionFoldsIntoUnresolvedBucketRegardlessOfCase() {
+        pharmacyDirectoryRepository.reloadAll(List.of(
+                new PharmacyDirectoryEntry("F1", "адрес", "Алматы", "1", "Иванов"),
+                new PharmacyDirectoryEntry("F2", "адрес", "Павлодар", "Закрыта", "Шкурат Юлия")));
+        LocalDate day = LocalDate.of(2026, 7, 22);
+        dailyMetricRepository.upsertAll(List.of(
+                new MetricRow("3005", "F1", 11, day, BigDecimal.valueOf(10)),
+                new MetricRow("3006", "F2", 11, day, BigDecimal.valueOf(30))));
+
+        List<DivisionMetricTotal> metricTotals = repository.findMetricTotalsByDivision(day, day);
+        DivisionMetricTotal unresolvedMetric = metricTotals.stream().filter(t -> t.divisionNum() == null).findFirst().orElseThrow();
+        assertThat(unresolvedMetric.total()).isEqualByComparingTo("30");
+        assertThat(metricTotals).noneMatch(t -> "Закрыта".equalsIgnoreCase(t.divisionNum()));
+
+        List<DivisionActivityTotal> activityTotals = repository.findActivityTotalsByDivision(day, day);
+        DivisionActivityTotal unresolvedActivity = activityTotals.stream().filter(t -> t.divisionNum() == null).findFirst().orElseThrow();
+        assertThat(unresolvedActivity.pharmacyCount()).isEqualTo(1);
+        assertThat(unresolvedActivity.activePharmacyCount()).isEqualTo(1);
+    }
 }

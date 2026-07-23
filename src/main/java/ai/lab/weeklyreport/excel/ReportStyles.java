@@ -6,34 +6,41 @@ import java.util.Map;
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.FillPatternType;
 import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.xssf.usermodel.XSSFCellStyle;
 import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFFont;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 /**
- * Стили корпоративного отчёта: точные HEX-цвета через {@link XSSFColor} (не {@code IndexedColors},
- * т.к. у неё ограниченная палитра). Стили кешируются по ключу, чтобы не плодить дубликаты в workbook.
+ * Стили корпоративного отчёта - тёмно-синяя палитра (титулы/фиксированные заголовки, группирующие
+ * заголовки на тон светлее, голубая подсветка итоговых колонок), воспроизводящая дизайн эталонного
+ * файла "Недельный отчет по ПЛ и маркетплейсам" один в один, включая шрифты: листы "Маркетплейсы"/
+ * "Программа лояльности"/"Дивизионы" в эталоне набраны Calibri (13/9/10 pt на титуле/подзаголовке/
+ * данных), а лист "Сводный" - Arial (14/10/11 pt) - это не опечатка, а разный шрифт целого листа в
+ * исходнике, поэтому у "Сводного" отдельный набор {@code summary*}-методов ниже. Точные HEX-цвета
+ * через {@link XSSFColor} (не {@code IndexedColors}, у неё ограниченная палитра). Стили кешируются
+ * по ключу, чтобы не плодить дубликаты в workbook.
  */
 final class ReportStyles {
 
-    private static final XSSFColor HEADER_BG = rgb(0x1F, 0x4E, 0x79);
-    private static final XSSFColor SECTION_BG = rgb(0x30, 0x54, 0x96);
-    private static final XSSFColor STRIPE_BG = rgb(0xF2, 0xF2, 0xF2);
-    private static final XSSFColor TOTAL_BG = rgb(0xD9, 0xE1, 0xF2);
-    private static final XSSFColor BORDER_COLOR = rgb(0xBF, 0xBF, 0xBF);
+    private static final String FONT_DEFAULT = "Calibri";
+    private static final String FONT_SUMMARY = "Arial";
+
+    private static final XSSFColor NAVY_DARK = rgb(0x1C, 0x2B, 0x4A);
+    private static final XSSFColor NAVY_MEDIUM = rgb(0x2E, 0x42, 0x72);
+    private static final XSSFColor STRIPE_GRAY = rgb(0xF5, 0xF5, 0xF5);
+    private static final XSSFColor WHITE_BG = rgb(0xFF, 0xFF, 0xFF);
+    private static final XSSFColor ACCENT_BG = rgb(0xEA, 0xF0, 0xFB);
+    private static final XSSFColor BORDER_COLOR = rgb(0xCC, 0xCC, 0xCC);
     private static final XSSFColor WHITE = rgb(0xFF, 0xFF, 0xFF);
     private static final XSSFColor BLACK = rgb(0x00, 0x00, 0x00);
-    private static final XSSFColor POSITIVE = rgb(0x2E, 0x7D, 0x32);
-    private static final XSSFColor NEGATIVE = rgb(0xC6, 0x28, 0x28);
+    private static final XSSFColor SUBTITLE_TEXT = rgb(0x66, 0x66, 0x66);
+    private static final XSSFColor SUBTITLE_TEXT_SUMMARY = rgb(0x55, 0x55, 0x55);
+    private static final XSSFColor ACCENT_TEXT = NAVY_DARK;
 
-    private static final String FORMAT_COUNT = "#,##0";
-    private static final String FORMAT_MONEY = "#,##0.00";
-    private static final String FORMAT_MONEY_WHOLE = "#,##0";
-    private static final String FORMAT_DYNAMIC_COUNT = "+#,##0;-#,##0;0";
-    private static final String FORMAT_DYNAMIC_MONEY = "+#,##0.00;-#,##0.00;0.00";
-    private static final String FORMAT_PERCENT = "+0.0%;-0.0%;0.0%";
-    private static final String FORMAT_PERCENT_PLAIN = "0.0%";
+    static final String FORMAT_NUMBER = "#,##0";
+    static final String FORMAT_PERCENT = "0%";
 
     private final XSSFWorkbook workbook;
     private final Map<String, XSSFCellStyle> cache = new HashMap<>();
@@ -46,126 +53,233 @@ final class ReportStyles {
         return new XSSFColor(new byte[]{(byte) r, (byte) g, (byte) b}, null);
     }
 
-    XSSFCellStyle headerStyle() {
-        return cache.computeIfAbsent("header", k -> {
+    XSSFCellStyle titleStyle() {
+        return cache.computeIfAbsent("title", k -> {
+            XSSFCellStyle style = noBorder();
+            style.setFillForegroundColor(NAVY_DARK);
+            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            style.setAlignment(HorizontalAlignment.LEFT);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setFont(font(WHITE, true, (short) 13));
+            return style;
+        });
+    }
+
+    XSSFCellStyle subtitleStyle() {
+        return cache.computeIfAbsent("subtitle", k -> {
+            XSSFCellStyle style = noBorder();
+            style.setFillForegroundColor(STRIPE_GRAY);
+            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            style.setAlignment(HorizontalAlignment.LEFT);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setFont(font(SUBTITLE_TEXT, false, (short) 9));
+            return style;
+        });
+    }
+
+    /** Заголовок группы колонок на тон светлее фиксированного (день/канал/раздел) - без переноса строк. */
+    XSSFCellStyle groupHeaderStyle() {
+        return cache.computeIfAbsent("group-header", k -> {
             XSSFCellStyle style = base();
-            style.setFillForegroundColor(HEADER_BG);
+            style.setFillForegroundColor(NAVY_MEDIUM);
             style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
             style.setAlignment(HorizontalAlignment.CENTER);
-            style.setFont(font(WHITE, true));
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setFont(font(WHITE, true, (short) 9));
             return style;
         });
     }
 
-    XSSFCellStyle sectionHeaderStyle() {
-        return cache.computeIfAbsent("section", k -> {
-            XSSFCellStyle style = base();
-            style.setFillForegroundColor(SECTION_BG);
+    // --- Лист "Сводный": в эталонном файле набран Arial, с другими размерами (14/10/11 pt) ---
+
+    XSSFCellStyle summaryTitleStyle() {
+        return cache.computeIfAbsent("summary-title", k -> {
+            XSSFCellStyle style = noBorder();
+            style.setFillForegroundColor(NAVY_DARK);
             style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-            style.setFont(font(WHITE, true));
+            style.setAlignment(HorizontalAlignment.CENTER);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setFont(font(WHITE, true, (short) 14, FONT_SUMMARY));
             return style;
         });
     }
 
-    XSSFCellStyle labelStyle(boolean stripe) {
-        return cache.computeIfAbsent("label-" + stripe, k -> {
+    XSSFCellStyle summarySubtitleStyle() {
+        return cache.computeIfAbsent("summary-subtitle", k -> {
+            XSSFCellStyle style = noBorder();
+            style.setFillForegroundColor(STRIPE_GRAY);
+            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            style.setAlignment(HorizontalAlignment.CENTER);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setFont(font(SUBTITLE_TEXT_SUMMARY, false, (short) 10, FONT_SUMMARY));
+            return style;
+        });
+    }
+
+    XSSFCellStyle summaryFixedHeaderStyle() {
+        return cache.computeIfAbsent("summary-fixed-header", k -> {
+            XSSFCellStyle style = base();
+            style.setFillForegroundColor(NAVY_DARK);
+            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            style.setAlignment(HorizontalAlignment.CENTER);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setWrapText(true);
+            style.setFont(font(WHITE, true, (short) 9, FONT_SUMMARY));
+            return style;
+        });
+    }
+
+    XSSFCellStyle summarySectionHeaderStyle() {
+        return cache.computeIfAbsent("summary-section-header", k -> {
+            XSSFCellStyle style = base();
+            style.setFillForegroundColor(NAVY_MEDIUM);
+            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            style.setAlignment(HorizontalAlignment.LEFT);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setFont(font(WHITE, true, (short) 10, FONT_SUMMARY));
+            return style;
+        });
+    }
+
+    XSSFCellStyle summaryLabelStyle(boolean stripe) {
+        return cache.computeIfAbsent("summary-label-" + stripe, k -> {
             XSSFCellStyle style = base();
             applyStripe(style, stripe);
-            style.setFont(font(BLACK, false));
+            style.setAlignment(HorizontalAlignment.LEFT);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setFont(font(BLACK, false, (short) 11, FONT_SUMMARY));
             return style;
         });
     }
 
-    XSSFCellStyle dataStyle(boolean stripe, boolean money) {
-        return cache.computeIfAbsent("data-" + stripe + "-" + money, k -> {
+    XSSFCellStyle summaryDataStyle(boolean stripe, String numberFormat) {
+        return cache.computeIfAbsent("summary-data-" + stripe + "-" + numberFormat, k -> {
             XSSFCellStyle style = base();
             applyStripe(style, stripe);
-            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(money ? FORMAT_MONEY : FORMAT_COUNT));
-            style.setFont(font(BLACK, false));
+            style.setAlignment(HorizontalAlignment.RIGHT);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(numberFormat));
+            style.setFont(font(BLACK, false, (short) 11, FONT_SUMMARY));
             return style;
         });
     }
 
-    XSSFCellStyle totalLabelStyle() {
-        return cache.computeIfAbsent("total-label", k -> {
+    XSSFCellStyle summaryAccentStyle(String numberFormat) {
+        return cache.computeIfAbsent("summary-accent-" + numberFormat, k -> {
             XSSFCellStyle style = base();
-            style.setFillForegroundColor(TOTAL_BG);
+            style.setFillForegroundColor(ACCENT_BG);
             style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-            style.setFont(font(BLACK, true));
+            style.setAlignment(HorizontalAlignment.RIGHT);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(numberFormat));
+            style.setFont(font(ACCENT_TEXT, true, (short) 11, FONT_SUMMARY));
             return style;
         });
     }
 
-    XSSFCellStyle totalValueStyle(boolean money) {
-        return cache.computeIfAbsent("total-value-" + money, k -> {
+    /** Заголовок фиксированной колонки/итоговой группы - на тон темнее {@link #groupHeaderStyle()}. */
+    XSSFCellStyle fixedHeaderStyle() {
+        return cache.computeIfAbsent("fixed-header", k -> {
             XSSFCellStyle style = base();
-            style.setFillForegroundColor(TOTAL_BG);
+            style.setFillForegroundColor(NAVY_DARK);
             style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(money ? FORMAT_MONEY : FORMAT_COUNT));
-            style.setFont(font(BLACK, true));
+            style.setAlignment(HorizontalAlignment.CENTER);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setWrapText(true);
+            style.setFont(font(WHITE, true, (short) 9));
             return style;
         });
     }
 
-    XSSFCellStyle wholeMoneyStyle(boolean stripe) {
-        return cache.computeIfAbsent("whole-money-" + stripe, k -> {
+    XSSFCellStyle labelStyle(boolean stripe, boolean bold) {
+        return cache.computeIfAbsent("label-" + stripe + "-" + bold, k -> {
             XSSFCellStyle style = base();
             applyStripe(style, stripe);
-            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(FORMAT_MONEY_WHOLE));
-            style.setFont(font(BLACK, false));
+            style.setAlignment(HorizontalAlignment.LEFT);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setFont(font(BLACK, bold, (short) 10));
             return style;
         });
     }
 
-    XSSFCellStyle totalWholeMoneyStyle() {
-        return cache.computeIfAbsent("total-whole-money", k -> {
-            XSSFCellStyle style = base();
-            style.setFillForegroundColor(TOTAL_BG);
-            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(FORMAT_MONEY_WHOLE));
-            style.setFont(font(BLACK, true));
-            return style;
-        });
-    }
-
-    XSSFCellStyle percentStyle(boolean stripe) {
-        return cache.computeIfAbsent("percent-" + stripe, k -> {
+    XSSFCellStyle centerLabelStyle(boolean stripe, boolean bold) {
+        return cache.computeIfAbsent("center-label-" + stripe + "-" + bold, k -> {
             XSSFCellStyle style = base();
             applyStripe(style, stripe);
-            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(FORMAT_PERCENT_PLAIN));
-            style.setFont(font(BLACK, false));
+            style.setAlignment(HorizontalAlignment.CENTER);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setFont(font(BLACK, bold, (short) 10));
             return style;
         });
     }
 
-    XSSFCellStyle totalPercentStyle() {
-        return cache.computeIfAbsent("total-percent", k -> {
+    /** Для текста, который может перенестись на несколько строк (например, охват регионов). */
+    XSSFCellStyle wrapLabelStyle(boolean stripe) {
+        return cache.computeIfAbsent("wrap-label-" + stripe, k -> {
             XSSFCellStyle style = base();
-            style.setFillForegroundColor(TOTAL_BG);
+            applyStripe(style, stripe);
+            style.setAlignment(HorizontalAlignment.LEFT);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setWrapText(true);
+            style.setFont(font(BLACK, false, (short) 9));
+            return style;
+        });
+    }
+
+    XSSFCellStyle dataStyle(boolean stripe, String numberFormat) {
+        return cache.computeIfAbsent("data-" + stripe + "-" + numberFormat, k -> {
+            XSSFCellStyle style = base();
+            applyStripe(style, stripe);
+            style.setAlignment(HorizontalAlignment.RIGHT);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(numberFormat));
+            style.setFont(font(BLACK, false, (short) 10));
+            return style;
+        });
+    }
+
+    /** Подсветка итоговой/накопительной колонки (ИТОГО за неделю, МП ИТОГО, Динамика). */
+    XSSFCellStyle accentStyle(String numberFormat) {
+        return cache.computeIfAbsent("accent-" + numberFormat, k -> {
+            XSSFCellStyle style = base();
+            style.setFillForegroundColor(ACCENT_BG);
             style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(FORMAT_PERCENT_PLAIN));
-            style.setFont(font(BLACK, true));
+            style.setAlignment(HorizontalAlignment.RIGHT);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(numberFormat));
+            style.setFont(font(ACCENT_TEXT, true, (short) 10));
             return style;
         });
     }
 
-    XSSFCellStyle dynamicStyle(int signum, boolean money, boolean percent) {
-        String key = "dynamic-" + signum + "-" + money + "-" + percent;
-        return cache.computeIfAbsent(key, k -> {
+    XSSFCellStyle totalRowLabelStyle() {
+        return cache.computeIfAbsent("total-row-label", k -> {
             XSSFCellStyle style = base();
-            String format = percent ? FORMAT_PERCENT : (money ? FORMAT_DYNAMIC_MONEY : FORMAT_DYNAMIC_COUNT);
-            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(format));
-            XSSFColor color = signum > 0 ? POSITIVE : signum < 0 ? NEGATIVE : BLACK;
-            style.setFont(font(color, true));
+            style.setFillForegroundColor(NAVY_DARK);
+            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            style.setAlignment(HorizontalAlignment.CENTER);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setFont(font(WHITE, true, (short) 10));
+            return style;
+        });
+    }
+
+    XSSFCellStyle totalRowValueStyle(String numberFormat) {
+        return cache.computeIfAbsent("total-row-value-" + numberFormat, k -> {
+            XSSFCellStyle style = base();
+            style.setFillForegroundColor(NAVY_DARK);
+            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            style.setAlignment(HorizontalAlignment.RIGHT);
+            style.setVerticalAlignment(VerticalAlignment.CENTER);
+            style.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat(numberFormat));
+            style.setFont(font(WHITE, true, (short) 10));
             return style;
         });
     }
 
     private void applyStripe(XSSFCellStyle style, boolean stripe) {
-        if (stripe) {
-            style.setFillForegroundColor(STRIPE_BG);
-            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        }
+        style.setFillForegroundColor(stripe ? STRIPE_GRAY : WHITE_BG);
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
     }
 
     private XSSFCellStyle base() {
@@ -181,10 +295,20 @@ final class ReportStyles {
         return style;
     }
 
-    private XSSFFont font(XSSFColor color, boolean bold) {
+    private XSSFCellStyle noBorder() {
+        return workbook.createCellStyle();
+    }
+
+    private XSSFFont font(XSSFColor color, boolean bold, short size) {
+        return font(color, bold, size, FONT_DEFAULT);
+    }
+
+    private XSSFFont font(XSSFColor color, boolean bold, short size, String fontName) {
         XSSFFont font = workbook.createFont();
         font.setColor(color);
         font.setBold(bold);
+        font.setFontHeightInPoints(size);
+        font.setFontName(fontName);
         return font;
     }
 }

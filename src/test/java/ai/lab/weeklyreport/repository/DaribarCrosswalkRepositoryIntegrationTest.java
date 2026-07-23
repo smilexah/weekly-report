@@ -29,7 +29,7 @@ class DaribarCrosswalkRepositoryIntegrationTest {
     @BeforeEach
     void setUp() {
         PGSimpleDataSource dataSource = new PGSimpleDataSource();
-        dataSource.setUrl(postgres.getJdbcUrl());
+        dataSource.setUrl(postgres.getJdbcUrl() + "?reWriteBatchedInserts=true");
         dataSource.setUser(postgres.getUsername());
         dataSource.setPassword(postgres.getPassword());
 

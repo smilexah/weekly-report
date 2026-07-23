@@ -68,4 +68,17 @@ class PharmacyDirectoryRepositoryIntegrationTest {
         assertThat(division1.directorName()).isEqualTo("Иванов Иван");
         assertThat(division1.coverage()).isEqualTo("Алматы, Астана");
     }
+
+    @Test
+    void excludesClosedStatusRowsRegardlessOfCase() {
+        repository.reloadAll(List.of(
+                new PharmacyDirectoryEntry("F1", "адрес 1", "Алматы", "1", "Иванов Иван"),
+                new PharmacyDirectoryEntry("F2", "адрес 2", "Павлодар", "Закрыта", "Шкурат Юлия"),
+                new PharmacyDirectoryEntry("F3", "адрес 3", "Алматы", "закрыта", "Шкурат Юлия")));
+
+        List<DivisionRegistryRow> registry = repository.findDivisionRegistry();
+
+        assertThat(registry).hasSize(1);
+        assertThat(registry.get(0).divisionNum()).isEqualTo("1");
+    }
 }

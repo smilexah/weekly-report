@@ -1,6 +1,8 @@
 package ai.lab.weeklyreport.repository;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -13,8 +15,10 @@ import ai.lab.weeklyreport.metric.DaribarCrosswalkEntry;
 /**
  * Сопоставление кода аптеки в Daribar с branch_code (daribar_crosswalk.xlsx). Загружается разово
  * при старте приложения с полной перезаписью содержимого таблицы. Источник может содержать
- * дублирующиеся daribar_code (известное ограничение) - batchUpdate выполняет по одному upsert-
- * запросу на строку в порядке файла, поэтому при дублях последняя строка в файле побеждает.
+ * дублирующиеся daribar_code (известное ограничение) - строки дедуплицируются по daribar_code перед
+ * батчингом (последняя строка в файле побеждает), т.к. с reWriteBatchedInserts=true драйвер может
+ * схлопнуть batch в один multi-row INSERT, а Postgres не разрешает ON CONFLICT DO UPDATE дважды
+ * задевать одну и ту же строку в рамках одной команды.
  */
 @Repository
 public class DaribarCrosswalkRepository {
@@ -37,13 +41,22 @@ public class DaribarCrosswalkRepository {
     @Transactional
     public void reloadAll(List<DaribarCrosswalkEntry> entries) {
         jdbcTemplate.getJdbcTemplate().execute("TRUNCATE TABLE daribar_crosswalk");
-        for (int start = 0; start < entries.size(); start += BATCH_SIZE) {
-            List<DaribarCrosswalkEntry> chunk = entries.subList(start, Math.min(start + BATCH_SIZE, entries.size()));
+        List<DaribarCrosswalkEntry> deduped = dedupeByDaribarCode(entries);
+        for (int start = 0; start < deduped.size(); start += BATCH_SIZE) {
+            List<DaribarCrosswalkEntry> chunk = deduped.subList(start, Math.min(start + BATCH_SIZE, deduped.size()));
             SqlParameterSource[] params = chunk.stream()
                     .map(DaribarCrosswalkRepository::toParams)
                     .toArray(SqlParameterSource[]::new);
             jdbcTemplate.batchUpdate(UPSERT_SQL, params);
         }
+    }
+
+    private static List<DaribarCrosswalkEntry> dedupeByDaribarCode(List<DaribarCrosswalkEntry> entries) {
+        Map<String, DaribarCrosswalkEntry> byDaribarCode = new LinkedHashMap<>();
+        for (DaribarCrosswalkEntry entry : entries) {
+            byDaribarCode.put(entry.daribarCode(), entry);
+        }
+        return List.copyOf(byDaribarCode.values());
     }
 
     private static SqlParameterSource toParams(DaribarCrosswalkEntry entry) {

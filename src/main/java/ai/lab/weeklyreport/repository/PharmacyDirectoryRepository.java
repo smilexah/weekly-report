@@ -28,10 +28,15 @@ public class PharmacyDirectoryRepository {
                 division_num = EXCLUDED.division_num, director_name = EXCLUDED.director_name
             """;
 
+    // "Закрыта"/"закрыта" - не номер дивизиона, а статус ("закрыта"), которым в источнике иногда
+    // помечают аптеку вместо номера дивизиона или NULL - такие строки не должны попадать в реестр
+    // дивизионов как фиктивная "дивизия"; их daily_metrics схлопываются в "Без дивизиона / склад"
+    // через аналогичный CASE в DivisionReportRepository.
     private static final String REGISTRY_SQL = """
             SELECT division_num, MAX(director_name) AS director_name, COUNT(*) AS pharmacy_count,
                    STRING_AGG(DISTINCT city, ', ' ORDER BY city) AS coverage
             FROM pharmacy_directory
+            WHERE division_num IS NULL OR LOWER(TRIM(division_num)) <> 'закрыта'
             GROUP BY division_num
             ORDER BY length(division_num), division_num
             """;

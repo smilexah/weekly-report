@@ -14,28 +14,33 @@ import ai.lab.weeklyreport.metric.DivisionMetricTotal;
 /**
  * Агрегаты daily_metrics в разрезе дивизиона (join с pharmacy_directory по branch_code) -
  * для листа "Дивизионы". LEFT JOIN оставляет division_num = NULL для строк, чей branch_code либо
- * не задан, либо не найден в справочнике - это единая корзина "Без дивизиона / склад".
+ * не задан, либо не найден в справочнике - это единая корзина "Без дивизиона / склад". Значение
+ * "Закрыта"/"закрыта" в division_num - это статус, а не номер дивизиона (см.
+ * {@link PharmacyDirectoryRepository#findDivisionRegistry()}), поэтому здесь оно тоже приводится
+ * к NULL и схлопывается в ту же корзину "Без дивизиона / склад", а не остаётся фиктивной "дивизией".
  */
 @Repository
 public class DivisionReportRepository {
 
+    private static final String DIVISION_NUM_EXPR = "CASE WHEN LOWER(TRIM(pd.division_num)) = 'закрыта' THEN NULL ELSE pd.division_num END";
+
     private static final String METRIC_TOTALS_SQL = """
-            SELECT pd.division_num AS division_num, dm.metric_num AS metric_num, SUM(dm.value) AS total
+            SELECT %s AS division_num, dm.metric_num AS metric_num, SUM(dm.value) AS total
             FROM daily_metrics dm
             LEFT JOIN pharmacy_directory pd ON pd.branch_code = dm.branch_code
             WHERE dm.metric_date BETWEEN :start AND :end
-            GROUP BY pd.division_num, dm.metric_num
-            """;
+            GROUP BY %s, dm.metric_num
+            """.formatted(DIVISION_NUM_EXPR, DIVISION_NUM_EXPR);
 
     private static final String ACTIVITY_TOTALS_SQL = """
-            SELECT pd.division_num AS division_num,
+            SELECT %s AS division_num,
                    COUNT(DISTINCT dm.pharmacy_code) AS pharmacy_count,
                    COUNT(DISTINCT dm.pharmacy_code) FILTER (WHERE dm.value <> 0) AS active_pharmacy_count
             FROM daily_metrics dm
             LEFT JOIN pharmacy_directory pd ON pd.branch_code = dm.branch_code
             WHERE dm.metric_date BETWEEN :start AND :end
-            GROUP BY pd.division_num
-            """;
+            GROUP BY %s
+            """.formatted(DIVISION_NUM_EXPR, DIVISION_NUM_EXPR);
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 

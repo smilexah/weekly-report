@@ -76,12 +76,15 @@ on `(pharmacy_code, metric_num, metric_date)`) → records an `ingested_files` a
 `WeekRange` (Mon-Sun) via `WeekRange.containingWeekBefore(today)`, pulls aggregated
 `MetricDailyTotal`s from `DailyMetricRepository.findDailyTotals()` plus division-level aggregates
 from `DivisionReportRepository`/`PharmacyDirectoryRepository`, builds the workbook via
-`WeeklyReportGenerator.generate()` (sheets: "Маркетплейсы", "Программа лояльности", "Сводный",
-"Дивизионы" - the last built on top of `DivisionMetricPivot` instead of the day-keyed `MetricPivot`,
-current week only, no prior-week comparison - and `ReportStyles` for POI cell styles), sends via
-`TelegramSender.sendDocument()`. Failures are logged with full stacktrace and a short error message
-is also sent to the reports chat (`WeeklyReportScheduler.notifyFailure`), so failures are visible
-without digging through logs.
+`WeeklyReportGenerator.generate()` (sheets in this order: "1. Маркетплейсы", "2. Программа
+лояльности", "3. Дивизионы" - built on `DivisionMetricPivot` instead of the day-keyed `MetricPivot`,
+current week only, no prior-week comparison - and "4. Сводный"; every sheet gets a navy title/period
+band via `WeeklyReportGenerator.writeTitleBand()`, and `ReportStyles` centralizes the whole
+dark-navy/accent-blue design system as POI cell styles - this design mirrors a hand-built reference
+file the business supplied, not an arbitrary choice, so changes here should stay visually consistent
+with it), sends via `TelegramSender.sendDocument()`. Failures are logged with full stacktrace and a
+short error message is also sent to the reports chat (`WeeklyReportScheduler.notifyFailure`), so
+failures are visible without digging through logs.
 
 **Ingestion watchdog**: `IngestionWatchdog` runs on a fixed rate (`ingestion-watchdog.check-interval`),
 compares `now` against `IngestedFileRepository.findLastIngestedAt()`. Alerts once per "silence
@@ -131,10 +134,22 @@ replace (`TRUNCATE` + batch insert in one transaction), not an incremental merge
   `PharmacyDirectoryRepository.findDivisionRegistry()` (static registry counts/coverage), joined
   against current-week aggregates from `DivisionReportRepository` (`LEFT JOIN daily_metrics ...
   pharmacy_directory` - a `NULL` division bucket naturally captures both unresolved and
-  no-directory-match branch_codes). Below the division rows: "Без дивизиона / склад" (that `NULL`
-  bucket, self-referential activity denominator since there's no registry count for it), then
-  "ИТОГО ПО СЕТИ" - includes the "Без дивизиона" bucket, and its activity % is a ratio of summed
-  counts, not an average of per-division percentages.
+  no-directory-match branch_codes), then "ИТОГО ПО СЕТИ" below the division rows, whose activity %
+  is a ratio of summed counts, not an average of per-division percentages. Pharmacies with no
+  resolved division (`NULL` bucket) are deliberately **excluded** from this sheet entirely - no row,
+  no contribution to "ИТОГО ПО СЕТИ" - since their orders aren't attributable to any real
+  division/director; that data still surfaces at the network level via the "1. Маркетплейсы" sheet
+  (which isn't scoped by division at all). `division_num` values of "Закрыта"/"закрыта"
+  (case-insensitive) are a source-data status marker, not a real division number - both
+  `PharmacyDirectoryRepository.findDivisionRegistry()` and the two `DivisionReportRepository`
+  aggregate queries normalize them to `NULL` (same `CASE WHEN LOWER(TRIM(...))` expression in all
+  three), so a "closed" pharmacy folds into the same excluded bucket rather than appearing as a
+  phantom division row.
+- **"Сводный" sheet's "ПРОБЛЕМЫ" section** (`WeeklyReportGenerator.writePlaceholderRow`): two rows
+  ("Отмены заказов МП", "Дивизионов с невыполнением плана") that always render as "н/д" - there is no
+  cancellation or plan/target data anywhere in the schema or source files, so these are the reference
+  design's section kept for visual parity, not live metrics. Don't backfill them with fabricated
+  numbers; wire up real data only if a genuine source for cancellations/plans shows up.
 
 ## Stack notes
 
