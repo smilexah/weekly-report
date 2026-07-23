@@ -76,6 +76,7 @@ public class ReportTelegramBot implements SpringLongPollingBot, LongPollingSingl
     private void downloadAndIngest(Document document, String fileName) throws TelegramApiException, IOException {
         org.telegram.telegrambots.meta.api.objects.File telegramFile = telegramClient.execute(new GetFile(document.getFileId()));
         try (InputStream inputStream = telegramClient.downloadFileAsStream(telegramFile)) {
+            log.info("Скачан файл '{}' из Telegram, начинаю обработку", fileName);
             ingestionService.ingest(document.getFileId(), fileName, inputStream);
         }
     }

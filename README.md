@@ -81,7 +81,7 @@ src/main/resources/db/migration/  - Flyway-миграции
 | `TELEGRAM_BOT_TOKEN`           | Токен бота от BotFather                                | -                          |
 | `TELEGRAM_SOURCE_CHANNEL_ID`   | Канал-источник `monthly_report.xlsx`                   | -                          |
 | `TELEGRAM_REPORT_CHAT_ID`      | Куда слать готовый недельный отчёт                     | -                          |
-| `SPRING_DATASOURCE_URL`        | JDBC URL PostgreSQL                                    | `jdbc:postgresql://localhost:6868/weeklyreport` |
+| `SPRING_DATASOURCE_URL`        | JDBC URL PostgreSQL                                    | `jdbc:postgresql://localhost:6868/weeklyreport?reWriteBatchedInserts=true` |
 | `SPRING_DATASOURCE_USERNAME`   | Пользователь БД                                        | `weeklyreport`             |
 | `SPRING_DATASOURCE_PASSWORD`   | Пароль БД                                              | `weeklyreport`             |
 | `POSTGRES_PORT`                | Порт на хосте для Postgres из docker-compose (только для docker-compose, см. ниже) | `6868` |

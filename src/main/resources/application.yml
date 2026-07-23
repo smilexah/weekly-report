@@ -5,7 +5,7 @@ spring:
     virtual:
       enabled: true
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:6868/weeklyreport}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:6868/weeklyreport?reWriteBatchedInserts=true}
     username: ${SPRING_DATASOURCE_USERNAME:weeklyreport}
     password: ${SPRING_DATASOURCE_PASSWORD:weeklyreport}
   flyway:

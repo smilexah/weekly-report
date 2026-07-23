@@ -42,9 +42,10 @@ public class IngestionService {
         }
 
         List<MetricRow> rows = parser.parse(xlsxStream);
+        log.info("Файл '{}' разобран: {} строк, записываю в БД", fileName, rows.size());
         dailyMetricRepository.upsertAll(rows);
         ingestedFileRepository.recordIngestedFile(telegramFileId, fileName, rows.size());
 
-        log.info("Файл '{}' обработан: {} строк", fileName, rows.size());
+        log.info("Файл '{}' записан в БД: {} строк", fileName, rows.size());
     }
 }

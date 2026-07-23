@@ -19,7 +19,7 @@ import ai.lab.weeklyreport.metric.MetricRow;
 @Repository
 public class DailyMetricRepository {
 
-    private static final int BATCH_SIZE = 1000;
+    private static final int BATCH_SIZE = 5000;
 
     // branch_code резолвится в порядке приоритета: 1) значение из строки monthly_report, если не
     // пусто; 2) иначе - поиск по daribar_crosswalk (branch_code, сопоставленный с pharmacy_code
