@@ -22,7 +22,8 @@ import ai.lab.weeklyreport.telegram.TelegramSender;
 @Service
 public class WeeklyReportService {
 
-    private static final DateTimeFormatter FILE_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter FILE_DAY_MONTH_FORMAT = DateTimeFormatter.ofPattern("dd.MM");
+    private static final DateTimeFormatter FILE_DAY_FORMAT = DateTimeFormatter.ofPattern("dd");
 
     private final DailyMetricRepository dailyMetricRepository;
     private final DivisionReportRepository divisionReportRepository;
@@ -64,10 +65,17 @@ public class WeeklyReportService {
 
         byte[] workbook = generator.generate(currentWeek, currentTotals, previousWeek, previousTotals, divisionsData);
 
-        String fileName = "weekly_report_%s_%s.xlsx".formatted(
-                currentWeek.start().format(FILE_DATE_FORMAT), currentWeek.end().format(FILE_DATE_FORMAT));
+        String fileName = "Недельный отчет по ПЛ и маркетплейсам (%s).xlsx".formatted(fileNameRange(currentWeek));
         String caption = "Недельный отчёт: %s - %s".formatted(currentWeek.start(), currentWeek.end());
 
         telegramSender.sendDocument(telegramProperties.reportChatId(), fileName, workbook, caption);
+    }
+
+    /** "13-19.07" в пределах одного месяца (как в эталонном файле), иначе "27.07-02.08". */
+    private static String fileNameRange(WeekRange week) {
+        if (week.start().getMonth() == week.end().getMonth()) {
+            return "%s-%s".formatted(week.start().format(FILE_DAY_FORMAT), week.end().format(FILE_DAY_MONTH_FORMAT));
+        }
+        return "%s-%s".formatted(week.start().format(FILE_DAY_MONTH_FORMAT), week.end().format(FILE_DAY_MONTH_FORMAT));
     }
 }
