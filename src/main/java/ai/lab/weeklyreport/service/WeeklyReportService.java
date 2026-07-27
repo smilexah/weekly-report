@@ -5,6 +5,8 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
@@ -21,6 +23,8 @@ import ai.lab.weeklyreport.telegram.TelegramSender;
 /** Собирает недельный отчёт (пн-вс прошлой недели) из БД и отправляет его в Telegram-чат. */
 @Service
 public class WeeklyReportService {
+
+    private static final Logger log = LoggerFactory.getLogger(WeeklyReportService.class);
 
     private static final DateTimeFormatter FILE_DAY_MONTH_FORMAT = DateTimeFormatter.ofPattern("dd.MM");
     private static final DateTimeFormatter FILE_DAY_FORMAT = DateTimeFormatter.ofPattern("dd");
@@ -68,6 +72,7 @@ public class WeeklyReportService {
         String fileName = "Недельный отчет по ПЛ и маркетплейсам (%s).xlsx".formatted(fileNameRange(currentWeek));
         String caption = "Недельный отчёт: %s - %s".formatted(currentWeek.start(), currentWeek.end());
 
+        log.info("Отправка недельного отчёта: fileName='{}'", fileName);
         telegramSender.sendDocument(telegramProperties.reportChatId(), fileName, workbook, caption);
     }
 
