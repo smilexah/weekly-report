@@ -10,7 +10,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import ai.lab.weeklyreport.config.EmailProperties;
 import ai.lab.weeklyreport.config.TelegramProperties;
+import ai.lab.weeklyreport.email.EmailSender;
 import ai.lab.weeklyreport.excel.DivisionsReportData;
 import ai.lab.weeklyreport.excel.WeekRange;
 import ai.lab.weeklyreport.excel.WeeklyReportGenerator;
@@ -35,6 +37,8 @@ public class WeeklyReportService {
     private final WeeklyReportGenerator generator;
     private final TelegramSender telegramSender;
     private final TelegramProperties telegramProperties;
+    private final EmailSender emailSender;
+    private final EmailProperties emailProperties;
     private final Clock clock;
 
     public WeeklyReportService(DailyMetricRepository dailyMetricRepository,
@@ -43,6 +47,8 @@ public class WeeklyReportService {
                                 WeeklyReportGenerator generator,
                                 TelegramSender telegramSender,
                                 TelegramProperties telegramProperties,
+                                EmailSender emailSender,
+                                EmailProperties emailProperties,
                                 Clock clock) {
         this.dailyMetricRepository = dailyMetricRepository;
         this.divisionReportRepository = divisionReportRepository;
@@ -50,6 +56,8 @@ public class WeeklyReportService {
         this.generator = generator;
         this.telegramSender = telegramSender;
         this.telegramProperties = telegramProperties;
+        this.emailSender = emailSender;
+        this.emailProperties = emailProperties;
         this.clock = clock;
     }
 
@@ -74,6 +82,18 @@ public class WeeklyReportService {
 
         log.info("Отправка недельного отчёта: fileName='{}'", fileName);
         telegramSender.sendDocument(telegramProperties.reportChatId(), fileName, workbook, caption);
+
+        // Email - лучшая попытка в дополнение к Telegram: если недоступна почта или список
+        // получателей пуст, основной канал (Telegram) уже получил отчёт, поэтому не роняем метод.
+        if (!emailProperties.recipients().isEmpty()) {
+            try {
+                emailSender.sendReport(emailProperties.recipients(), fileName, caption, fileName, workbook);
+            } catch (Exception e) {
+                // Причина сбоя (авторизация/SSL/таймаут/отклонённый адрес) уже залогирована с
+                // деталями внутри EmailSender - здесь только фиксируем, что канал деградировал.
+                log.warn("Отчёт на почту не отправлен, но уже ушёл в Telegram");
+            }
+        }
     }
 
     /** "13-19.07" в пределах одного месяца (как в эталонном файле), иначе "27.07-02.08". */

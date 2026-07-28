@@ -33,6 +33,12 @@ services:
       WEEKLY_REPORT_TIMEZONE: ${WEEKLY_REPORT_TIMEZONE:-Asia/Almaty}
       DIVISIONS_FILE_PATH: /data/divisions.xlsx
       DARIBAR_CROSSWALK_PATH: /data/daribar_crosswalk.xlsx
+      SMTP_HOST: ${SMTP_HOST:-mail.inkar.kz}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:-weekly-report@inkar.kz}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      WEEKLY_REPORT_EMAIL_RECIPIENTS: ${WEEKLY_REPORT_EMAIL_RECIPIENTS:-}
     volumes:
       - ./data:/data:ro
 

@@ -10,6 +10,24 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:weeklyreport}
   flyway:
     locations: classpath:db/migration
+  mail:
+    host: ${SMTP_HOST:mail.inkar.kz}
+    port: ${SMTP_PORT:465}
+    username: ${SMTP_USER:weekly-report@inkar.kz}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          connectiontimeout: 15000
+          timeout: 30000
+          writetimeout: 15000
+          ssl:
+            enable: ${SMTP_SECURE:true}
+            # Обязательно оставлять true - иначе JavaMail не проверяет, что имя сервера в
+            # SSL-сертификате совпадает с SMTP_HOST (без этого TLS-соединение защищено от
+            # прослушивания, но не от подмены сервера).
+            checkserveridentity: true
 
 telegram:
   bot:
@@ -22,6 +40,8 @@ weekly-report:
   timezone: ${WEEKLY_REPORT_TIMEZONE:Asia/Almaty}
   divisions-path: ${DIVISIONS_FILE_PATH}
   daribar-crosswalk-path: ${DARIBAR_CROSSWALK_PATH}
+  email:
+    recipients: ${WEEKLY_REPORT_EMAIL_RECIPIENTS:}
 
 ingestion-watchdog:
   max-silence: ${INGESTION_WATCHDOG_MAX_SILENCE:26h}
