@@ -177,4 +177,3 @@ release-страницам на момент сборки, а не взяты п
 Версии PostgreSQL driver, Flyway и Testcontainers сознательно не зафиксированы явно в
 `build.gradle.kts` - они наследуются из BOM `spring-boot-dependencies:4.1.0`, что гарантирует
 совместимость между собой и с самим Spring Boot.
-
